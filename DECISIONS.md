@@ -133,8 +133,16 @@ review made the login mandatory and group-based (D16, D25).
 
 - **Flow:** OpenID Connect authorization code flow with **PKCE (S256), state and nonce**,
   using `openid-client` v6 (certified, from the author of `jose`). The provider is
-  discovered from `OIDC_ISSUER`. The client can be confidential (`OIDC_CLIENT_SECRET`,
-  sent as `client_secret_post`) or public (no secret, PKCE only).
+  discovered from `OIDC_ISSUER`.
+- **Client authentication at the token endpoint** is set by `OIDC_TOKEN_AUTH_METHOD`:
+  `client_secret_basic` (the default, and the default of the OIDC spec), `client_secret_post`,
+  `client_secret_jwt`, or `none` for a public client (PKCE only). It must match the client
+  registration: Authelia, for example, rejects any other method.
+  - It is not guessed from the provider's discovery document, because providers there list
+    what they support, not what this particular client is registered with.
+  - A secret is required unless the method is `none`, and it is refused with `none`.
+  - `private_key_jwt` is not supported; it would need key management.
+  - Revised: this was hard-coded to `client_secret_post` before, which Authelia rejected.
 - **Mandatory:** the web server refuses to start without `OIDC_ISSUER`, `OIDC_CLIENT_ID`,
   `PUBLIC_URL` and `OIDC_ALLOWED_GROUPS`. There is no "no login" mode, not even for
   development or the demo; use the mock provider from `compose.yaml` there. `PUBLIC_URL`
