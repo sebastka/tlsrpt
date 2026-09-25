@@ -1,5 +1,8 @@
 # TLSRPT dashboard
 
+> [!NOTE]
+> This project was created with [Anthropic Claude Opus 5.5](https://www.anthropic.com/claude).
+
 A small self-hosted dashboard for **SMTP TLS Reporting** ([RFC 8460](https://www.rfc-editor.org/rfc/rfc8460)).
 It reads the aggregate reports that mail providers (Google, Microsoft, …) send to your
 `_smtp._tls` `rua=mailto:` address, stores them in MariaDB, and shows an overview:
@@ -14,6 +17,8 @@ It reads the aggregate reports that mail providers (Google, Microsoft, …) send
 The mailbox is opened **read-only**; nothing is flagged, moved or deleted. Opening the
 dashboard **requires an OpenID Connect login** and membership of an allowed group. Design choices are recorded in
 [DECISIONS.md](DECISIONS.md).
+
+![Dashboard preview: TLS success rate, findings, sessions per day, policies, reporters and the list of reports](docs/dashboard.png)
 
 ## Requirements
 
@@ -160,4 +165,5 @@ src/web/      React UI (hand-drawn SVG charts)
 scripts/      release bundle, demo data generator
 test/         unit + MariaDB integration tests, real and synthetic report fixtures
 dev/          MariaDB init script for compose.yaml
+docs/         README assets (dashboard preview)
 ```
