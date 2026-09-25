@@ -9,6 +9,7 @@ type Log = (msg: string) => void;
 
 export class Syncer {
   private running: Promise<SyncResult> | null = null;
+  private stopping = false;
   private timer: NodeJS.Timeout | null = null;
   private lastRunAt: string | null = null;
   private lastSuccessAt: string | null = null;
@@ -47,6 +48,7 @@ export class Syncer {
 
   /** Runs a sync, or joins the one already in progress. */
   run(opts: { full?: boolean } = {}): Promise<SyncResult> {
+    if (this.stopping) return Promise.reject(new Error('shutting down'));
     this.running ??= this.doRun(opts).finally(() => {
       this.running = null;
     });
@@ -60,15 +62,25 @@ export class Syncer {
       this.timer = setTimeout(() => {
         this.run()
           .catch(() => {})
-          .finally(tick);
+          .finally(() => {
+            if (!this.stopping) tick();
+          });
       }, minutes * 60_000);
       this.timer.unref();
     };
     tick();
   }
 
-  stop(): void {
+  /**
+   * Stops scheduling and asks a running sync to finish after the current message (it then
+   * logs out of IMAP normally). Resolves once no sync is running; the next run resumes
+   * from the last stored message.
+   */
+  async stop(): Promise<void> {
+    this.stopping = true;
     if (this.timer) clearTimeout(this.timer);
+    this.nextRunAt = null;
+    await this.running?.catch(() => {});
   }
 
   private async doRun({ full = false }: { full?: boolean }): Promise<SyncResult> {
@@ -140,6 +152,12 @@ export class Syncer {
         if (pending.length) this.log(`${pending.length} new message(s) in ${imap.mailbox}`);
 
         for (const { uid, size } of pending) {
+          if (this.stopping) {
+            this.log(
+              `shutting down: stopped after ${result.messagesSeen} of ${pending.length} message(s), the rest follow next run`,
+            );
+            break;
+          }
           result.messagesSeen++;
           const base = { mailbox: imap.mailbox, uidvalidity: uidValidity, uid };
           if (size > imap.maxMessageSize) {

@@ -2,7 +2,7 @@
 # Assembles the release bundle (used by CI, runnable locally):
 #   scripts/bundle.sh [output dir, default build/tlsrpt]
 #
-# Layout (mounted at /app in production and run with `node /app/src/server/index.ts`):
+# Layout (same /app layout as the Docker image; run with `node /app/src/server/index.ts`):
 #   dist/web/            built UI
 #   src/server, shared/  TypeScript server, run directly by Node's type stripping
 #   node_modules/        production dependencies (pure JS, architecture independent)

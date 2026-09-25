@@ -182,8 +182,9 @@ review made the login mandatory and group-based (D16, D25).
   1. **check:** `npm run check` + `npm run build`, on every push and PR.
   2. **release:** a signed `tlsrpt.tar.xz` with checksum, attached to a GitHub release
      tagged `YYYY.MM.DD-<sha>`.
-  3. **docker:** a data-only `FROM scratch` image on GHCR (`<tag>` and `latest`) with
-     SBOM and provenance, signed with cosign.
+  3. **docker:** a standalone image on GHCR (`<tag>` and `latest`) with SBOM and
+     provenance, signed with cosign. Since the third review, this image runs by itself;
+     see D21.
 
   `dependabot.yml` and the auto-merge workflow are copied too.
 
@@ -196,11 +197,16 @@ review made the login mandatory and group-based (D16, D25).
     not inline in the workflow, so it can be built and tested locally.
   - The image is built for **linux/amd64 and linux/arm64**. The bundle is
     architecture-independent and the Dockerfile has no `RUN`, so no emulation is needed.
+  - The image is built from a committed multi-stage Dockerfile (carat generates a
+    scratch Dockerfile in the workflow). See D21.
   - The workflow triggers on `master`, like carat and this repository's current branch.
-- **Verified locally:** `npm run check` and the bundle in `node:26` (with
-  `TZ=Europe/Oslo`); the scratch image mounted into `node:26-alpine` (read-only, non-root),
-  syncing the real mailbox into MariaDB; the full OIDC flow against a mock provider. The
-  GitHub workflow itself has not run yet.
+- **Verified locally:**
+  - `npm run check` and the bundle in `node:26` (with `TZ=Europe/Oslo`).
+  - The multi-stage image (read-only root filesystem, all capabilities dropped): it synced
+    the real mailbox into MariaDB, the full OIDC flow worked against a mock provider, and
+    the health check reported healthy.
+  - The amd64 + arm64 build with a buildx container builder.
+  - The GitHub workflow with these changes has not run yet.
 
 ### D18. Demo data set (revised)
 
@@ -215,21 +221,53 @@ review made the login mandatory and group-based (D16, D25).
 - **Choice:** Unlike carat, whose server has no dependencies, this server needs Hono,
   ImapFlow, mailparser, mariadb and openid-client. The bundle therefore contains
   `npm ci --omit=dev` output. All of it is pure JS (checked: no native addons), so it runs
-  on any architecture. Size: 25 MB unpacked, 2 MB as `.tar.xz`, 19 MB image.
+  on any architecture. Size: 25 MB unpacked, 2 MB as `.tar.xz`, 145 MB image (126 MB of
+  which is the DHI Node base).
 - **Alternative:** bundle the server with Vite/Rolldown into a single file. That would be
   smaller, but risks breaking dynamic requires in the mail libraries. Reconsider if size
   matters.
 
-### D21. The image puts the bundle in `app/`, so mount it with `subPath: app`
+### D21. A standalone image, built with a multi-stage Dockerfile on Docker Hardened Images (revised)
 
-- The image is `FROM scratch` + `COPY tlsrpt /app`, exactly like carat. An image volume
-  exposes the image's root filesystem. Mounted at `/app`, the files therefore end up in
-  `/app/app/…`. Mount with `subPath: app` (Kubernetes ≥ 1.33; locally
-  `docker run --mount type=image,…,image-subpath=app`).
-- **Note:** carat's README sketch (mount at `/app`, run `/app/server.mjs`) looks like it has
-  the same off-by-one directory, unless your manifests already use `subPath`.
-- **Alternative:** `COPY tlsrpt /` puts the bundle at the image root, so no subPath is
-  needed. Kept carat's layout for consistency.
+- **Before:** a data-only `FROM scratch` image, to be mounted into a `node:26-alpine`
+  container. **Now:** a standalone image built by a multi-stage [Dockerfile](Dockerfile).
+  The mount and `subPath` question is gone.
+  1. **build** (`dhi.io/node:26-alpine-dev`: npm, root): `npm ci` + `vite build`.
+  2. **prod-deps** (same image): `npm ci --omit=dev --ignore-scripts`.
+  3. **runtime** (`dhi.io/node:26-alpine`): copies `package.json`, the production
+     `node_modules`, `dist/` and `src/server` + `src/shared`, and runs
+     `node /app/src/server/index.ts`.
+- **CI:** the Ubuntu check job still typechecks, lints and tests every push, and the
+  release job still publishes the signed `tlsrpt.tar.xz` built on Ubuntu. The docker job
+  builds the image from the repository, so the archive and the image are built by two
+  separate processes from the same commit. Tests don't run inside the image build.
+  - **Alternative:** build the image from the Ubuntu-built bundle (a copy-only Dockerfile),
+    which guarantees the image is byte-identical to the archive. I prototyped and tested
+    that first, then switched on request.
+- **Multi-arch without emulation:** both build stages use `--platform=$BUILDPLATFORM`,
+  because their output (built assets, pure-JS dependencies) is architecture independent.
+  Only the copy-only runtime stage runs per platform. BuildKit's npm cache mount and the
+  GitHub Actions layer cache speed up rebuilds.
+- **Build context:** `.dockerignore` is an allow-list (package files, tsconfigs,
+  `vite.config.ts`, `src/`), so `.env`, `data/`, `node_modules` and `.git` can never end up
+  in the context. The image was checked for this.
+- **Runtime base:** non-root uid 1000, no shell or package manager, a CA bundle for TLS
+  (checked).
+  - Everything in `/app` is owned by root and only readable, so a read-only root
+    filesystem works.
+  - `LISTEN_HOST=0.0.0.0` and `PORT=3000` are preset.
+  - `HEALTHCHECK` uses Node's `fetch`.
+  - The OCI labels include the git revision (`REVISION` build argument).
+- **Pinned by digest:** both base images are pinned by digest (multi-arch index), and
+  Dependabot's `docker` ecosystem refreshes them. Those PRs only touch the Dockerfile,
+  so auto-merge works (`docker` was added to the auto-merge workflow).
+- **Credentials:** dhi.io requires a Docker Hub login, even for free images (checked:
+  anonymous pulls are refused). The workflow reads the repository variable `DHI_USERNAME` and the Actions secret
+  `DHI_TOKEN`. Dependabot needs both as Dependabot secrets, because `dependabot.yml`
+  registries can only read Dependabot secrets.
+- **Not done:** the image is not built on pull requests. That needs dhi.io credentials
+  in PR runs, including Dependabot's. A base-image problem would therefore only show up
+  in the docker job on `master`. Worth adding if it bites.
 
 ### D22. Dates are exchanged with MariaDB as UTC strings
 
