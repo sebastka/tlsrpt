@@ -298,13 +298,28 @@ review made the login mandatory and group-based (D16, D25).
 - **Choice:** `OIDC_ALLOWED_GROUPS` (comma or space separated) is required. At login, the
   user's groups must include at least one of them. The groups are read from
   `OIDC_GROUPS_CLAIM` (default `groups`) in the ID token merged with the userinfo response.
-  The claim can be an array or a space/comma-separated string.
+  Accepted claim formats:
+  - an array of strings, or one space/comma-separated string: the names are used as-is.
+    `@` has no special meaning here, so e-mail-style group names (Google, Entra) work.
+  - Zitadel project roles, `{ role: { orgId: orgDomain } }`: these become `role@orgId`, one
+    entry per organisation the role is granted in, and **never the bare role name**. A role
+    key only means something within an organisation. If the project is granted to another
+    organisation, its admins can assign the same key to their own users; matching the bare
+    key would let them in. The organisation ID is used rather than the domain, because the
+    ID never changes.
+  - **Anything else is refused** with its own error ("unsupported format") instead of being
+    guessed at. For example, Keycloak's `resource_access` is keyed by client ID, and using
+    its keys as groups would grant access to anyone with any role on that client. Arrays
+    must contain only strings.
+  - This replaced a proposed change that used the keys of _any_ object claim as groups. That
+    change dropped the organisation scope and failed open on other object formats.
   - The claim name is tried as-is first, because some providers use URLs as claim names.
     It is then tried as a dotted path into nested claims, e.g. Keycloak client roles
     (`resource_access.tlsrpt.roles`) or realm roles (`realm_access.roles`).
-- **Error messages:** a missing claim and a claim without an allowed group give different
-  messages. A missing claim is almost always a provider mapping issue, not a permission
-  issue.
+- **Error messages:** a missing claim, a claim in an unsupported format, and a claim
+  without an allowed group give different messages. A missing claim is almost always a
+  provider mapping issue, not a permission issue. A denied login is logged server-side with
+  the groups as read (e.g. `operations@123`), which shows the exact value to allow.
 - **The email allow-list was removed**, so there is a single authorization rule.
   Individual users can still be allowed through a dedicated group.
 - **When changes take effect:** group membership is checked at login only, not on every
