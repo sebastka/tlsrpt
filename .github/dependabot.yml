@@ -1,0 +1,23 @@
+---
+version: 2
+updates:
+  # Keep SHA-pinned GitHub Actions up to date (bumps both the SHA and the # version comment).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: ci
+
+  # npm dependencies (package.json + package-lock.json). Minor and patch bumps are
+  # auto-merged by dependabot-auto-merge.yml once the check job passes; majors wait for review.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: deps

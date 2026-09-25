@@ -1,0 +1,33 @@
+# Local development dependencies (the app itself runs with `npm run dev`):
+#   docker compose up -d                  MariaDB only
+#   docker compose --profile oidc up -d   MariaDB + a mock OIDC provider on :8080
+services:
+  mariadb:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: tlsrpt
+      MARIADB_USER: tlsrpt
+      MARIADB_PASSWORD: ${DB_PASSWORD:-tlsrpt}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-tlsrpt-root}
+    ports:
+      - '127.0.0.1:${DB_PORT:-3306}:3306'
+    volumes:
+      - mariadb-data:/var/lib/mysql
+      - ./dev/mariadb-init.sql:/docker-entrypoint-initdb.d/10-tlsrpt.sql:ro
+    healthcheck:
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Accepts any username on its login form; enter claims such as {"groups": ["tlsrpt"]}.
+  # Issuer: http://localhost:8080/default
+  mock-oidc:
+    image: ghcr.io/navikt/mock-oauth2-server:latest
+    profiles: [oidc]
+    ports:
+      - '127.0.0.1:8080:8080'
+
+volumes:
+  mariadb-data:
