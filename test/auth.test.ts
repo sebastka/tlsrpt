@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import * as oidc from 'openid-client';
-import { authorize, clientAuth, groupsFromClaims, safeReturnTo } from '../src/server/auth.ts';
+import { authorize, clientAuth, readGroupsClaim, safeReturnTo } from '../src/server/auth.ts';
 import { config, validateConfig, type Config } from '../src/server/config.ts';
 
 const groups = (allowedGroups: string[], groupsClaim = 'groups') => ({ allowedGroups, groupsClaim });
@@ -28,10 +28,43 @@ test('authorize fails closed with an empty allow-list', () => {
   assert.match(authorize({ sub: 'a', groups: ['anything'] }, groups([]))!, /not a member/);
 });
 
+const ok = (groups: string[]) => ({ status: 'ok', groups });
+
 test('groups claim can be a nested path or a URL-like claim name', () => {
-  assert.deepEqual(groupsFromClaims({ realm_access: { roles: ['a', 'b'] } }, 'realm_access.roles'), ['a', 'b']);
-  assert.deepEqual(groupsFromClaims({ 'https://example.com/groups': ['a'] }, 'https://example.com/groups'), ['a']);
-  assert.equal(groupsFromClaims({ realm_access: {} }, 'realm_access.roles'), null);
+  assert.deepEqual(readGroupsClaim({ realm_access: { roles: ['a', 'b'] } }, 'realm_access.roles'), ok(['a', 'b']));
+  assert.deepEqual(readGroupsClaim({ 'https://example.com/groups': ['a'] }, 'https://example.com/groups'), ok(['a']));
+  assert.deepEqual(readGroupsClaim({ realm_access: {} }, 'realm_access.roles'), { status: 'missing' });
+  // "@" has no special meaning in lists: e-mail style group names match as-is.
+  assert.equal(authorize({ sub: 'a', groups: ['noc@example.com'] }, groups(['noc@example.com'])), null);
+});
+
+test('Zitadel project roles are scoped to the organisation that granted them', () => {
+  const claim = 'urn:zitadel:iam:org:project:roles';
+  const zitadel = {
+    [claim]: {
+      operations: { '123': 'inbox.com' },
+      support_1l: { '123': 'inbox.com', '456': 'partner.example' },
+    },
+  };
+  assert.deepEqual(readGroupsClaim(zitadel, claim), ok(['operations@123', 'support_1l@123', 'support_1l@456']));
+  assert.equal(authorize({ sub: 'a', ...zitadel }, groups(['operations@123'], claim)), null);
+  // The bare role name never matches, and neither does the role in another organisation.
+  assert.match(authorize({ sub: 'a', ...zitadel }, groups(['operations'], claim))!, /not a member/);
+  assert.match(authorize({ sub: 'a', ...zitadel }, groups(['operations@456'], claim))!, /not a member/);
+  // Present but empty is a membership problem, not a missing mapper: the messages differ.
+  assert.deepEqual(readGroupsClaim({ [claim]: {} }, claim), ok([]));
+  assert.match(authorize({ sub: 'a', [claim]: {} }, groups(['operations@123'], claim))!, /not a member/);
+  assert.match(authorize({ sub: 'a' }, groups(['operations@123'], claim))!, /did not send/);
+});
+
+test('claims of other shapes are refused instead of guessed at', () => {
+  // Keycloak resource_access is keyed by client: its keys must not become groups.
+  const keycloak = { resource_access: { tlsrpt: { roles: ['viewer'] }, account: { roles: ['manage-account'] } } };
+  assert.deepEqual(readGroupsClaim(keycloak, 'resource_access'), { status: 'unsupported' });
+  assert.match(authorize({ sub: 'a', ...keycloak }, groups(['tlsrpt'], 'resource_access'))!, /unsupported format/);
+  for (const bad of [{ a: 1 }, { a: ['x'] }, { a: { org: 1 } }, [{ name: 'x' }], 42, true]) {
+    assert.deepEqual(readGroupsClaim({ groups: bad }, 'groups'), { status: 'unsupported' }, JSON.stringify(bad));
+  }
 });
 
 test('the web server refuses to start without OIDC and allowed groups', () => {

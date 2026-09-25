@@ -22,20 +22,48 @@ export function safeReturnTo(v: string | undefined | null): string {
   return v;
 }
 
+export type GroupsClaim = { status: 'ok'; groups: string[] } | { status: 'missing' } | { status: 'unsupported' };
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
 /**
- * Reads the groups claim. The name is tried as-is first (some providers use URLs as claim
- * names), then as a dotted path into nested claims, e.g. Keycloak's "realm_access.roles".
+ * Reads the user's groups from the configured claim. The name is tried as-is first (some
+ * providers use URLs as claim names), then as a dotted path into nested claims, e.g.
+ * Keycloak's "realm_access.roles". Accepted formats:
+ *
+ * - a list of group names, or one space/comma-separated string: used as-is;
+ * - Zitadel project roles, `{ role: { orgId: orgDomain } }`: one `role@orgId` entry per
+ *   organisation the role is granted in, and never the bare role name. A role key only means
+ *   something within an organisation; if the project is granted to another organisation,
+ *   its admins can assign the same key to their own users.
+ *
+ * Any other format is "unsupported" rather than guessed at, so a claim of a different shape
+ * (e.g. Keycloak's `resource_access`, keyed by client) cannot grant access by accident.
  */
-export function groupsFromClaims(claims: Record<string, unknown>, claim: string): string[] | null {
+export function readGroupsClaim(claims: Record<string, unknown>, claim: string): GroupsClaim {
   let raw: unknown = claims[claim];
   if (raw === undefined && claim.includes('.')) {
-    raw = claim
-      .split('.')
-      .reduce<unknown>((v, k) => (v && typeof v === 'object' ? (v as Record<string, unknown>)[k] : undefined), claims);
+    raw = claim.split('.').reduce<unknown>((v, k) => (isPlainObject(v) ? v[k] : undefined), claims);
   }
-  if (Array.isArray(raw)) return raw.map(String);
-  if (typeof raw === 'string') return raw.split(/[\s,]+/).filter(Boolean);
-  return null;
+  if (raw === undefined || raw === null) return { status: 'missing' };
+  if (typeof raw === 'string') return { status: 'ok', groups: raw.split(/[\s,]+/).filter(Boolean) };
+  if (Array.isArray(raw)) {
+    return raw.every((g) => typeof g === 'string')
+      ? { status: 'ok', groups: raw as string[] }
+      : { status: 'unsupported' };
+  }
+  const isZitadelRoles =
+    isPlainObject(raw) &&
+    Object.values(raw).every((orgs) => isPlainObject(orgs) && Object.values(orgs).every((d) => typeof d === 'string'));
+  if (isZitadelRoles) {
+    const roles = raw as Record<string, Record<string, string>>;
+    return {
+      status: 'ok',
+      groups: Object.entries(roles).flatMap(([role, orgs]) => Object.keys(orgs).map((org) => `${role}@${org}`)),
+    };
+  }
+  return { status: 'unsupported' };
 }
 
 /** Only members of an allowed group may open the dashboard. Returns a reason when denied. */
@@ -43,12 +71,15 @@ export function authorize(
   claims: Record<string, unknown>,
   cfg: Pick<typeof config.oidc, 'allowedGroups' | 'groupsClaim'> = config.oidc,
 ): string | null {
-  const groups = groupsFromClaims(claims, cfg.groupsClaim);
-  if (groups === null) {
+  const claim = readGroupsClaim(claims, cfg.groupsClaim);
+  if (claim.status === 'missing') {
     return `the identity provider did not send a "${cfg.groupsClaim}" claim; add a group mapper or scope for this client`;
   }
+  if (claim.status === 'unsupported') {
+    return `the "${cfg.groupsClaim}" claim has an unsupported format (expected a list of groups or Zitadel project roles)`;
+  }
   // An empty allow-list is refused at startup; deny here as well rather than fail open.
-  if (!groups.some((g) => cfg.allowedGroups.includes(g))) {
+  if (!claim.groups.some((g) => cfg.allowedGroups.includes(g))) {
     return 'you are not a member of a group that is allowed to open this dashboard';
   }
   return null;
@@ -208,7 +239,11 @@ export class Auth {
 
       const denied = authorize(claims);
       if (denied) {
-        console.warn(`[auth] access denied for ${String(claims.sub)}: ${denied}`);
+        // Log the groups as read, so an admin can see the exact value to put in OIDC_ALLOWED_GROUPS
+        // (e.g. Zitadel roles appear as role@orgId).
+        const read = readGroupsClaim(claims, config.oidc.groupsClaim);
+        const has = read.status === 'ok' ? `groups: ${read.groups.join(', ') || '(none)'}` : `claim ${read.status}`;
+        console.warn(`[auth] access denied for ${String(claims.sub)} (${has}): ${denied}`);
         return page(c, 403, 'Access denied', denied);
       }
 

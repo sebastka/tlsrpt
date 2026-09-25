@@ -63,9 +63,26 @@ The dashboard does not start without `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `PUBLIC_UR
 `OIDC_ALLOWED_GROUPS`. At login, the user's groups (from the ID token and userinfo, claim
 `OIDC_GROUPS_CLAIM`) must include at least one allowed group; otherwise the login is
 refused with a 403. Make sure the provider sends the claim: add a groups mapper (Keycloak,
-Authentik), add `groups` to `OIDC_SCOPES` if the provider needs it (Dex, Zitadel), or point
-`OIDC_GROUPS_CLAIM` at another claim. Group changes take effect at the next login, at
-the latest after `SESSION_TTL_HOURS`. Only `/api/health` (for probes) and the login,
+Authentik), add `groups` to `OIDC_SCOPES` if the provider needs it (Dex), or point
+`OIDC_GROUPS_CLAIM` at another claim. The claim must be a list of group names (or one
+space/comma-separated string), or Zitadel project roles (below); other formats are refused.
+A denied login is logged with the groups the user actually has, which shows the exact
+values to allow. Group changes take effect at the next login, at
+the latest after `SESSION_TTL_HOURS`.
+
+**Zitadel:** use project roles, which are scoped to the organisation that granted them. They
+are matched as `role@organisationId`, never as the bare role name, so another organisation
+the project is granted to cannot give access by assigning the same role key:
+
+```sh
+OIDC_GROUPS_CLAIM=urn:zitadel:iam:org:project:roles
+OIDC_ALLOWED_GROUPS=operations@123456789012345678   # role key @ organisation ID
+```
+
+In the Zitadel project, enable "Assert Roles on Authentication" (or add
+`urn:zitadel:iam:org:projects:roles` to `OIDC_SCOPES`), otherwise the claim is not sent.
+
+Only `/api/health` (for probes) and the login,
 callback and logout routes work without a session. The CLI sync (`npm run sync`) does not
 serve HTTP and only needs the database and IMAP settings.
 
