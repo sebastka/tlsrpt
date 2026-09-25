@@ -9,7 +9,7 @@ import tseslint from 'typescript-eslint';
 // turns off any stylistic rules that would fight it), so ESLint only enforces
 // correctness — type-aware bug rules are left to `tsc` (npm run typecheck).
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules', 'data'] },
+  { ignores: ['dist', 'node_modules', 'data', 'build'] },
 
   js.configs.recommended,
   ...tseslint.configs.recommended,

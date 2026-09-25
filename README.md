@@ -105,41 +105,52 @@ On the mock provider's login form, enter any username and the claims
 [.github/workflows/release.yaml](.github/workflows/release.yaml) runs `npm run check` and
 the build on every push and pull request. On `master` it also:
 
-1. assembles the bundle ([scripts/bundle.sh](scripts/bundle.sh)): `dist/web`, the
-   TypeScript server and its production `node_modules`,
+1. builds the app on Ubuntu and assembles the bundle ([scripts/bundle.sh](scripts/bundle.sh)):
+   `dist/web`, the TypeScript server and its production `node_modules`,
 2. publishes it as a cosign-signed `tlsrpt.tar.xz` GitHub release tagged `YYYY.MM.DD-<sha>`,
-3. packs it into a data-only `FROM scratch` image, `ghcr.io/<owner>/tlsrpt:<tag>` and
-   `:latest` (amd64 + arm64), with SBOM and provenance, signed with cosign.
+3. builds the image from the multi-stage [Dockerfile](Dockerfile): the app is built in
+   `dhi.io/node:26-alpine-dev` and copied into the hardened `dhi.io/node:26-alpine` runtime
+   (both digest-pinned), then pushed as `ghcr.io/<owner>/tlsrpt:<tag>` and `:latest`
+   (amd64 + arm64), with SBOM and provenance, signed with cosign.
 
-The image has no Node runtime: mount it into a `node:26-alpine` container. The bundle
-sits in `app/` inside the image, hence `subPath: app`:
+Pulling the Docker Hardened Images needs a Docker Hub account and a read-only access
+token: for the workflow, the repository variable `DHI_USERNAME` and the secret `DHI_TOKEN`;
+for Dependabot (which keeps the base image digests current), `DHI_USERNAME` and `DHI_TOKEN`
+as Dependabot secrets, because Dependabot cannot read Actions variables or secrets.
+
+The image is standalone: it runs as uid 1000, has no shell or package manager, and its
+filesystem can be read-only. Configure it with the environment variables above
+(`LISTEN_HOST=0.0.0.0` and `PORT=3000` are preset):
+
+```sh
+docker run -d --name tlsrpt -p 3000:3000 --read-only --cap-drop ALL \
+  --env-file tlsrpt.env ghcr.io/<owner>/tlsrpt:latest
+```
 
 ```yaml
+# Kubernetes sketch
 containers:
   - name: tlsrpt
-    image: node:26-alpine
-    command: ['node', '/app/src/server/index.ts']
+    image: ghcr.io/<owner>/tlsrpt:latest
     env:
-      - { name: LISTEN_HOST, value: '0.0.0.0' }
       - { name: PUBLIC_URL, value: 'https://tlsrpt.example.com' }
       - { name: DB_HOST, value: 'mariadb' }
-      # IMAP_*, DB_PASSWORD, OIDC_* from a Secret
     envFrom:
-      - secretRef: { name: tlsrpt }
+      - secretRef: { name: tlsrpt } # IMAP_*, DB_PASSWORD, OIDC_*
     ports:
       - { containerPort: 3000 }
     readinessProbe:
       httpGet: { path: /api/health, port: 3000 }
-    securityContext: { runAsUser: 1000, readOnlyRootFilesystem: true }
-    volumeMounts:
-      - { name: app, mountPath: /app, subPath: app, readOnly: true }
-volumes:
-  - name: app
-    image: { reference: 'ghcr.io/<owner>/tlsrpt:latest' } # k8s image volume (subPath needs 1.33+)
+    securityContext:
+      runAsNonRoot: true
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      capabilities: { drop: [ALL] }
 ```
 
-Locally: `docker run --mount type=image,source=<image>,target=/app,image-subpath=app node:26-alpine node /app/src/server/index.ts`.
-Several replicas are fine: migrations and mailbox syncs are serialised with MariaDB locks.
+To build the image locally: `docker login dhi.io`, then `npm run docker:build`
+(`docker build -t tlsrpt:local .`). Several replicas are fine:
+migrations and mailbox syncs are serialised with MariaDB locks.
 
 ## API
 
@@ -163,6 +174,7 @@ src/server/   config, IMAP sync, MIME + RFC 8460 parsing, MariaDB store, analysi
 src/shared/   types and constants shared with the UI
 src/web/      React UI (hand-drawn SVG charts)
 scripts/      release bundle, demo data generator
+Dockerfile    multi-stage image build (dhi.io/node:26-alpine-dev → dhi.io/node:26-alpine)
 test/         unit + MariaDB integration tests, real and synthetic report fixtures
 dev/          MariaDB init script for compose.yaml
 docs/         README assets (dashboard preview)

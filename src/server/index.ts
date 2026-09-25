@@ -24,12 +24,34 @@ if (imapConfigured()) {
   console.warn('IMAP is not configured; set IMAP_HOST, IMAP_USERNAME and IMAP_PASSWORD to fetch reports.');
 }
 
-function shutdown() {
-  syncer.stop();
-  server.close(() => {
-    store.close().finally(() => process.exit(0));
-  });
-  setTimeout(() => process.exit(0), 5000).unref();
+// Graceful shutdown on SIGTERM (docker stop, Kubernetes) and SIGINT (Ctrl+C). Node runs as
+// PID 1 in the container, where signals without a handler are ignored, so these handlers are
+// what makes the container stop promptly.
+const SHUTDOWN_TIMEOUT_MS = 8000; // below Docker's default 10 s grace period
+let shuttingDown = false;
+
+async function shutdown(signal: NodeJS.Signals): Promise<void> {
+  if (shuttingDown) {
+    console.warn(`${signal} received again, exiting immediately`);
+    process.exit(1);
+  }
+  shuttingDown = true;
+  console.log(`${signal} received, shutting down`);
+  setTimeout(() => {
+    console.error(`shutdown did not finish within ${SHUTDOWN_TIMEOUT_MS / 1000} s, exiting`);
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS).unref();
+
+  // Stop accepting connections (idle keep-alive connections are closed), let a running
+  // mailbox sync finish its current message, then close the database pool.
+  const httpClosed = new Promise<void>((resolve) => server.close(() => resolve()));
+  await syncer.stop();
+  // In-flight requests have had the sync's duration to finish; cut any that remain.
+  if ('closeAllConnections' in server) server.closeAllConnections();
+  await httpClosed;
+  await store.close();
+  console.log('shutdown complete');
+  process.exit(0);
 }
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.on('SIGINT', (s) => void shutdown(s));
+process.on('SIGTERM', (s) => void shutdown(s));

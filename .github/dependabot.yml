@@ -1,5 +1,14 @@
 ---
 version: 2
+# Pulling Docker Hardened Images needs a Docker Hub account. Dependabot cannot read Actions
+# secrets or variables, so DHI_USERNAME and DHI_TOKEN are both Dependabot *secrets* here.
+registries:
+  dhi:
+    type: docker-registry
+    url: dhi.io
+    username: ${{secrets.DHI_USERNAME}}
+    password: ${{secrets.DHI_TOKEN}}
+
 updates:
   # Keep SHA-pinned GitHub Actions up to date (bumps both the SHA and the # version comment).
   - package-ecosystem: github-actions
@@ -29,3 +38,14 @@ updates:
       default-days: 7
     commit-message:
       prefix: deps
+
+  # The digest-pinned runtime base image in the Dockerfile (dhi.io/node:26-alpine).
+  - package-ecosystem: docker
+    directory: /
+    registries: [dhi]
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: build
