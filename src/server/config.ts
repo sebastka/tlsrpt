@@ -26,6 +26,10 @@ function list(name: string): string[] {
     .filter(Boolean);
 }
 
+/** Client authentication methods at the token endpoint (RFC 8414 names). */
+export const TOKEN_AUTH_METHODS = ['client_secret_basic', 'client_secret_post', 'client_secret_jwt', 'none'] as const;
+export type TokenAuthMethod = (typeof TOKEN_AUTH_METHODS)[number];
+
 const imapPort = int('IMAP_PORT', 993);
 const publicUrl = str('PUBLIC_URL')?.replace(/\/+$/, '');
 
@@ -61,6 +65,8 @@ export const config = {
     issuer: str('OIDC_ISSUER'),
     clientId: str('OIDC_CLIENT_ID'),
     clientSecret: str('OIDC_CLIENT_SECRET'),
+    /** Must match the client registration at the provider; "none" = public client. */
+    tokenAuthMethod: str('OIDC_TOKEN_AUTH_METHOD', 'client_secret_basic')!.toLowerCase() as TokenAuthMethod,
     scopes: str('OIDC_SCOPES', 'openid profile email')!,
     /** Members of at least one of these groups may open the dashboard. Required. */
     allowedGroups: list('OIDC_ALLOWED_GROUPS'),
@@ -94,10 +100,18 @@ export function validateConfig({ server }: { server: boolean }, cfg: Config = co
     if (!cfg.oidc.allowedGroups.length) missing.push('OIDC_ALLOWED_GROUPS');
     if (!cfg.http.publicUrl) missing.push('PUBLIC_URL');
   }
+  if (server && cfg.oidc.tokenAuthMethod !== 'none' && !cfg.oidc.clientSecret) missing.push('OIDC_CLIENT_SECRET');
   if (missing.length) {
     throw new Error(`missing required configuration: ${missing.join(', ')} (login via OIDC is mandatory)`);
   }
   if (server) {
+    const method = cfg.oidc.tokenAuthMethod;
+    if (!TOKEN_AUTH_METHODS.includes(method)) {
+      throw new Error(`OIDC_TOKEN_AUTH_METHOD must be one of ${TOKEN_AUTH_METHODS.join(', ')}, got "${method}"`);
+    }
+    if (method === 'none' && cfg.oidc.clientSecret) {
+      throw new Error('OIDC_CLIENT_SECRET is set but OIDC_TOKEN_AUTH_METHOD is "none" (public client)');
+    }
     const u = new URL(cfg.http.publicUrl!);
     if (u.pathname !== '/' || u.search) {
       throw new Error('PUBLIC_URL must be an origin without a path, e.g. https://tlsrpt.example.com');

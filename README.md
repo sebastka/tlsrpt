@@ -24,23 +24,24 @@ dashboard **requires an OpenID Connect login** and membership of an allowed grou
 
 Copy `.env.example` to `.env`. All settings are environment variables:
 
-| Variable                                      | Default                 |                                                                        |
-| --------------------------------------------- | ----------------------- | ---------------------------------------------------------------------- |
-| `IMAP_HOST`, `IMAP_USERNAME`, `IMAP_PASSWORD` | –                       | required to sync                                                       |
-| `IMAP_PORT` / `IMAP_DIR`                      | `993` / `INBOX`         |                                                                        |
-| `IMAP_TLS` / `IMAP_TLS_REJECT_UNAUTHORIZED`   | `true` on 993 / `true`  | STARTTLS on other ports                                                |
-| `DB_HOST` / `DB_PORT`                         | `127.0.0.1` / `3306`    |                                                                        |
-| `DB_USER` / `DB_PASSWORD` / `DB_NAME`         | `tlsrpt` / – / `tlsrpt` | password required; schema is created at startup                        |
-| `DB_TLS` / `DB_POOL_SIZE`                     | `false` / `5`           |                                                                        |
-| `LISTEN_HOST` / `PORT`                        | `127.0.0.1` / `3000`    | `0.0.0.0` in containers                                                |
-| `PUBLIC_URL`                                  | –                       | **required**: external origin, e.g. `https://tlsrpt.example.com`       |
-| `SYNC_INTERVAL_MINUTES`                       | `30`                    | `0` = manual only                                                      |
-| `OIDC_ISSUER`, `OIDC_CLIENT_ID`               | –                       | **required**                                                           |
-| `OIDC_CLIENT_SECRET`                          | –                       | omit for a public client (PKCE is always used)                         |
-| `OIDC_SCOPES`                                 | `openid profile email`  |                                                                        |
-| `OIDC_ALLOWED_GROUPS`                         | –                       | **required**: groups allowed to open the dashboard, comma separated    |
-| `OIDC_GROUPS_CLAIM`                           | `groups`                | claim holding the groups; dotted paths work, e.g. `realm_access.roles` |
-| `SESSION_TTL_HOURS`                           | `12`                    |                                                                        |
+| Variable                                      | Default                 |                                                                                                                                |
+| --------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `IMAP_HOST`, `IMAP_USERNAME`, `IMAP_PASSWORD` | –                       | required to sync                                                                                                               |
+| `IMAP_PORT` / `IMAP_DIR`                      | `993` / `INBOX`         |                                                                                                                                |
+| `IMAP_TLS` / `IMAP_TLS_REJECT_UNAUTHORIZED`   | `true` on 993 / `true`  | STARTTLS on other ports                                                                                                        |
+| `DB_HOST` / `DB_PORT`                         | `127.0.0.1` / `3306`    |                                                                                                                                |
+| `DB_USER` / `DB_PASSWORD` / `DB_NAME`         | `tlsrpt` / – / `tlsrpt` | password required; schema is created at startup                                                                                |
+| `DB_TLS` / `DB_POOL_SIZE`                     | `false` / `5`           |                                                                                                                                |
+| `LISTEN_HOST` / `PORT`                        | `127.0.0.1` / `3000`    | `0.0.0.0` in containers                                                                                                        |
+| `PUBLIC_URL`                                  | –                       | **required**: external origin, e.g. `https://tlsrpt.example.com`                                                               |
+| `SYNC_INTERVAL_MINUTES`                       | `30`                    | `0` = manual only                                                                                                              |
+| `OIDC_ISSUER`, `OIDC_CLIENT_ID`               | –                       | **required**                                                                                                                   |
+| `OIDC_CLIENT_SECRET`                          | –                       | required unless `OIDC_TOKEN_AUTH_METHOD=none`                                                                                  |
+| `OIDC_TOKEN_AUTH_METHOD`                      | `client_secret_basic`   | `client_secret_basic`, `client_secret_post`, `client_secret_jwt` or `none` (public client); must match the client registration |
+| `OIDC_SCOPES`                                 | `openid profile email`  |                                                                                                                                |
+| `OIDC_ALLOWED_GROUPS`                         | –                       | **required**: groups allowed to open the dashboard, comma separated                                                            |
+| `OIDC_GROUPS_CLAIM`                           | `groups`                | claim holding the groups; dotted paths work, e.g. `realm_access.roles`                                                         |
+| `SESSION_TTL_HOURS`                           | `12`                    |                                                                                                                                |
 
 ### OIDC
 
@@ -49,6 +50,9 @@ Register a client with your provider (Keycloak, Authentik, Entra ID, Google, …
 - redirect URI: `${PUBLIC_URL}/auth/callback`
 - post-logout redirect URI: `${PUBLIC_URL}/`
 - grant type: authorization code (PKCE S256 is always sent)
+- token endpoint authentication: `client_secret_basic` by default. If the provider expects
+  another method (e.g. Authelia's `token_endpoint_auth_method`), set `OIDC_TOKEN_AUTH_METHOD`
+  to the same value.
 
 The dashboard does not start without `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `PUBLIC_URL` and
 `OIDC_ALLOWED_GROUPS`. At login, the user's groups (from the ID token and userinfo, claim
@@ -76,7 +80,8 @@ npm start                   # serve API + built UI on http://127.0.0.1:3000
 
 The MariaDB integration tests run when `TEST_DB_HOST` is set (see `.env.example`); they
 drop and recreate the `tlsrpt_test` database. Login is also required in development:
-start the mock provider (`docker compose --profile oidc up -d`) and set, in `.env`:
+start the mock provider (`docker compose --profile oidc up -d`; set `MOCK_OIDC_PORT` if 8080 is
+taken, and adjust `OIDC_ISSUER` to match) and set, in `.env`:
 
 ```sh
 PUBLIC_URL=http://localhost:5173

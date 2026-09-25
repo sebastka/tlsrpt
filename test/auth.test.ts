@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { authorize, groupsFromClaims, safeReturnTo } from '../src/server/auth.ts';
+import { createServer } from 'node:http';
+import * as oidc from 'openid-client';
+import { authorize, clientAuth, groupsFromClaims, safeReturnTo } from '../src/server/auth.ts';
 import { config, validateConfig, type Config } from '../src/server/config.ts';
 
 const groups = (allowedGroups: string[], groupsClaim = 'groups') => ({ allowedGroups, groupsClaim });
@@ -36,7 +38,14 @@ test('the web server refuses to start without OIDC and allowed groups', () => {
   const base: Config = structuredClone({ ...config, staticDir: '' });
   base.db.password = 'x';
   base.http.publicUrl = 'https://tlsrpt.example.com';
-  base.oidc = { ...base.oidc, issuer: 'https://idp.example', clientId: 'tlsrpt', allowedGroups: ['noc'] };
+  base.oidc = {
+    ...base.oidc,
+    issuer: 'https://idp.example',
+    clientId: 'tlsrpt',
+    clientSecret: 's3cret',
+    tokenAuthMethod: 'client_secret_basic',
+    allowedGroups: ['noc'],
+  };
   assert.doesNotThrow(() => validateConfig({ server: true }, base));
 
   const without = (patch: (c: Config) => void) => {
@@ -63,6 +72,24 @@ test('the web server refuses to start without OIDC and allowed groups', () => {
   assert.throws(
     without((c) => (c.http.publicUrl = 'https://x.example/tlsrpt')),
     /origin without a path/,
+  );
+  assert.throws(
+    without((c) => (c.oidc.clientSecret = undefined)),
+    /OIDC_CLIENT_SECRET/,
+  );
+  assert.throws(
+    without((c) => (c.oidc.tokenAuthMethod = 'private_key_jwt' as never)),
+    /OIDC_TOKEN_AUTH_METHOD must be one of/,
+  );
+  assert.throws(
+    without((c) => (c.oidc.tokenAuthMethod = 'none')),
+    /public client/,
+  );
+  assert.doesNotThrow(
+    without((c) => {
+      c.oidc.tokenAuthMethod = 'none';
+      c.oidc.clientSecret = undefined;
+    }),
   );
   // The CLI sync never serves HTTP and only needs the database.
   assert.doesNotThrow(() =>
@@ -100,4 +127,49 @@ test('every route except login, callback, logout and health requires a session',
   assert.deepEqual(await me.json(), { user: { sub: 'u1', email: 'u@x', name: 'U' } });
   const filters = await app.request('/api/filters', { headers: { cookie: `tlsrpt_session=${token}` } });
   assert.equal(filters.status, 200);
+});
+
+test('the default is client_secret_basic, and each method authenticates as registered', async () => {
+  const { config: fresh } = await import(`../src/server/config.ts?default=${Date.now()}`);
+  if (!process.env.OIDC_TOKEN_AUTH_METHOD) assert.equal(fresh.oidc.tokenAuthMethod, 'client_secret_basic');
+
+  // A minimal token endpoint that records how the client authenticated.
+  let seen: { authorization?: string; body: URLSearchParams } | null = null;
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      seen = { authorization: req.headers.authorization, body: new URLSearchParams(body) };
+      res.writeHead(400, { 'content-type': 'application/json' }).end('{"error":"invalid_grant"}');
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const { port } = server.address() as { port: number };
+  const as = { issuer: 'http://idp.test', token_endpoint: `http://127.0.0.1:${port}/token` };
+  const tokenRequest = async (method: Parameters<typeof clientAuth>[0], secret?: string) => {
+    const c = new oidc.Configuration(as, 'tlsrpt', undefined, clientAuth(method, secret));
+    oidc.allowInsecureRequests(c);
+    await assert.rejects(oidc.refreshTokenGrant(c, 'rt'));
+    return seen!;
+  };
+  try {
+    const basic = await tokenRequest('client_secret_basic', 's3cret');
+    assert.equal(basic.authorization, `Basic ${Buffer.from('tlsrpt:s3cret').toString('base64')}`);
+    assert.equal(basic.body.get('client_secret'), null);
+
+    const post = await tokenRequest('client_secret_post', 's3cret');
+    assert.equal(post.authorization, undefined);
+    assert.equal(post.body.get('client_secret'), 's3cret');
+
+    const jwt = await tokenRequest('client_secret_jwt', 's3cret');
+    assert.equal(jwt.body.get('client_assertion_type'), 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+    assert.equal(jwt.body.get('client_secret'), null);
+
+    const none = await tokenRequest('none');
+    assert.equal(none.authorization, undefined);
+    assert.equal(none.body.get('client_id'), 'tlsrpt');
+    assert.equal(none.body.get('client_secret'), null);
+  } finally {
+    server.close();
+  }
 });

@@ -4,7 +4,7 @@ import type { Context, Hono, MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import * as oidc from 'openid-client';
 import type { AuthUser } from '../shared/types.ts';
-import { config } from './config.ts';
+import { config, type TokenAuthMethod } from './config.ts';
 import type { Store } from './db.ts';
 
 export type AppEnv = { Variables: { user: AuthUser | null } };
@@ -54,6 +54,20 @@ export function authorize(
   return null;
 }
 
+/** Maps OIDC_TOKEN_AUTH_METHOD to openid-client's client authentication (validated at startup). */
+export function clientAuth(method: TokenAuthMethod, secret: string | undefined): oidc.ClientAuth {
+  switch (method) {
+    case 'client_secret_basic':
+      return oidc.ClientSecretBasic(secret!);
+    case 'client_secret_post':
+      return oidc.ClientSecretPost(secret!);
+    case 'client_secret_jwt':
+      return oidc.ClientSecretJwt(secret!);
+    case 'none':
+      return oidc.None();
+  }
+}
+
 function page(c: Context, status: 401 | 403 | 502, title: string, message: string) {
   const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
   return c.html(
@@ -85,7 +99,7 @@ export class Auth {
         new URL(config.oidc.issuer!),
         config.oidc.clientId!,
         undefined,
-        config.oidc.clientSecret ? oidc.ClientSecretPost(config.oidc.clientSecret) : oidc.None(),
+        clientAuth(config.oidc.tokenAuthMethod, config.oidc.clientSecret),
         config.oidc.allowInsecureIssuer ? { execute: [oidc.allowInsecureRequests] } : undefined,
       )
       .catch((e: unknown) => {
