@@ -10,6 +10,14 @@ updates:
       default-days: 7
     commit-message:
       prefix: ci
+    # One PR for all minor/patch action bumps. Separate PRs all edit release.yaml, and once
+    # one merges the others are behind master: squash-merging a stale branch writes workflow
+    # content the PR head doesn't have, which GITHUB_TOKEN may not do (no `workflows`
+    # permission), so GitHub disables their auto-merge. Majors stay separate for review.
+    groups:
+      github-actions:
+        patterns: ['*']
+        update-types: [minor, patch]
 
   # npm dependencies (package.json + package-lock.json). Minor and patch bumps are
   # auto-merged by dependabot-auto-merge.yml once the check job passes; majors wait for review.
