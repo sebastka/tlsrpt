@@ -78,10 +78,20 @@ export interface FailureDetailStat {
 
 export type InsightLevel = 'good' | 'info' | 'warning' | 'critical';
 
+/** A domain or reporter a finding applies to; the UI shows these as chips that filter the view. */
+export interface InsightSubject {
+  kind: 'domain' | 'org';
+  value: string;
+  /** Short extra context shown in the chip, e.g. "32 days". */
+  note?: string;
+}
+
 export interface Insight {
   level: InsightLevel;
   title: string;
   detail: string;
+  /** Set when one finding covers several domains or reporters (listed compactly). */
+  subjects?: InsightSubject[];
 }
 
 export interface Overview {

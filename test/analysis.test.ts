@@ -103,3 +103,37 @@ test('extractReports finds a gzip tlsrpt attachment in a MIME message', async ()
   assert.equal(m.reports.length, 1);
   assert.equal(m.reports[0]!.report.reportId, '2026-08-27T00:00:00Z_karlsen.fr');
 });
+
+test('findings for many domains or reporters are grouped into one, with the list attached', () => {
+  const base = rows('google-sts.json')[0]!; // MTA-STS in testing mode, no failures
+  const domains = ['c.example', 'a.example', 'b.example'];
+  const reports = domains.map((domain, i) => ({
+    ...base,
+    id: i + 1,
+    org: i === 0 ? 'Other Reporter' : base.org,
+    reportId: `r${i}`,
+    policies: base.policies.map((p) => ({ ...p, id: i + 1, domain })),
+  }));
+  const o = buildOverview(reports, {}, new Date('2026-09-20T00:00:00Z'));
+  const testing = o.insights.filter((i) => i.title.includes('testing mode'));
+  assert.equal(testing.length, 1);
+  assert.equal(testing[0]!.title, 'MTA-STS is in testing mode for 3 domains');
+  assert.deepEqual(
+    testing[0]!.subjects,
+    ['a.example', 'b.example', 'c.example'].map((value) => ({ kind: 'domain', value })),
+  );
+  const stale = o.insights.find((i) => i.title.startsWith('No report from'))!;
+  assert.equal(stale.title, 'No report from 2 reporters for 7 days or more');
+  assert.deepEqual(
+    stale.subjects?.map((s) => [s.kind, s.value, s.note]),
+    [
+      ['org', 'Google Inc.', '23 days'],
+      ['org', 'Other Reporter', '23 days'],
+    ],
+  );
+  // A single domain keeps the specific wording and needs no list.
+  const one = buildOverview(rows('google-sts.json'), {}, new Date('2026-08-28T00:00:00Z'));
+  const single = one.insights.find((i) => i.title.includes('testing mode'))!;
+  assert.equal(single.title, 'MTA-STS for karlsen.fr is in testing mode');
+  assert.equal(single.subjects, undefined);
+});
