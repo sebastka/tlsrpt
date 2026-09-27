@@ -4,6 +4,7 @@ import type {
   FailureTypeStat,
   Filters,
   Insight,
+  InsightLevel,
   OrgStat,
   Overview,
   PolicyStat,
@@ -256,45 +257,104 @@ export function buildInsights(o: Overview, filters: Filters, now: Date): Insight
     });
   }
 
-  for (const p of o.byPolicy) {
-    if (p.type === 'sts' && p.latestMode === 'testing') {
-      out.push({
-        level: p.failed === 0 ? 'info' : 'warning',
-        title: `MTA-STS for ${p.domain} is in testing mode`,
-        detail:
-          p.failed === 0
-            ? `No MTA-STS failures in ${p.reports} report${p.reports === 1 ? '' : 's'}. Consider switching the policy to "mode: enforce" once you have enough history.`
-            : 'Senders will still deliver without TLS when validation fails. Fix the failures before switching to "mode: enforce".',
-      });
-    } else if (p.type === 'sts' && p.latestMode === 'none') {
-      out.push({
-        level: 'warning',
-        title: `MTA-STS for ${p.domain} is set to mode "none"`,
-        detail: 'The policy is being withdrawn; senders do not apply it.',
-      });
-    } else if (p.type === 'no-policy-found') {
-      out.push({
-        level: 'info',
-        title: `Reporters found no policy for ${p.domain}`,
-        detail: 'Neither MTA-STS nor DANE was found when delivering to this domain, so TLS is opportunistic only.',
-      });
-    }
+  // Per-domain and per-reporter findings are grouped, so many domains in the same state
+  // produce one finding with a compact list instead of one line each.
+  const testingOk = o.byPolicy.filter((p) => p.type === 'sts' && p.latestMode === 'testing' && p.failed === 0);
+  const testingFailing = o.byPolicy.filter((p) => p.type === 'sts' && p.latestMode === 'testing' && p.failed > 0);
+  const modeNone = o.byPolicy.filter((p) => p.type === 'sts' && p.latestMode === 'none');
+  const noPolicy = o.byPolicy.filter((p) => p.type === 'no-policy-found');
+
+  if (testingFailing.length) {
+    out.push(
+      grouped(
+        'warning',
+        testingFailing,
+        (d) => `MTA-STS for ${d} is in testing mode`,
+        (n) => `MTA-STS is in testing mode for ${n} domains with failures`,
+        {
+          detail:
+            'Senders will still deliver without TLS when validation fails. Fix the failures before switching to "mode: enforce".',
+        },
+      ),
+    );
+  }
+  if (testingOk.length) {
+    const single = testingOk[0]!;
+    out.push(
+      grouped(
+        'info',
+        testingOk,
+        (d) => `MTA-STS for ${d} is in testing mode`,
+        (n) => `MTA-STS is in testing mode for ${n} domains`,
+        {
+          detail:
+            testingOk.length === 1
+              ? `No MTA-STS failures in ${single.reports} report${single.reports === 1 ? '' : 's'}. Consider switching the policy to "mode: enforce" once you have enough history.`
+              : 'No MTA-STS failures reported for these domains. Consider switching their policies to "mode: enforce" once you have enough history.',
+        },
+      ),
+    );
+  }
+  if (modeNone.length) {
+    out.push(
+      grouped(
+        'warning',
+        modeNone,
+        (d) => `MTA-STS for ${d} is set to mode "none"`,
+        (n) => `MTA-STS is set to mode "none" for ${n} domains`,
+        {
+          detail: 'The policy is being withdrawn; senders do not apply it.',
+        },
+      ),
+    );
+  }
+  if (noPolicy.length) {
+    out.push(
+      grouped(
+        'info',
+        noPolicy,
+        (d) => `Reporters found no policy for ${d}`,
+        (n) => `Reporters found no policy for ${n} domains`,
+        {
+          detail: `Neither MTA-STS nor DANE was found when delivering to ${noPolicy.length === 1 ? 'this domain' : 'these domains'}, so TLS is opportunistic only.`,
+        },
+      ),
+    );
   }
 
   // Staleness only makes sense when the range reaches (close to) today.
   const today = now.toISOString().slice(0, 10);
   if (!filters.to || filters.to >= today) {
-    for (const org of o.byOrg) {
-      const silentDays = Math.floor((now.getTime() - Date.parse(org.lastReportEnd)) / DAY_MS);
-      if (silentDays >= STALE_DAYS) {
-        out.push({
-          level: 'info',
-          title: `No report from ${org.org} for ${silentDays} days`,
-          detail: 'Reporters only send a report on days they delivered mail to you, so this can be normal.',
-        });
-      }
+    const stale = o.byOrg
+      .map((org) => ({ org: org.org, days: Math.floor((now.getTime() - Date.parse(org.lastReportEnd)) / DAY_MS) }))
+      .filter((s) => s.days >= STALE_DAYS);
+    const detail = 'Reporters only send a report on days they delivered mail to you, so this can be normal.';
+    if (stale.length === 1) {
+      out.push({ level: 'info', title: `No report from ${stale[0]!.org} for ${stale[0]!.days} days`, detail });
+    } else if (stale.length > 1) {
+      out.push({
+        level: 'info',
+        title: `No report from ${stale.length} reporters for ${STALE_DAYS} days or more`,
+        detail,
+        subjects: stale
+          .sort((a, b) => b.days - a.days)
+          .map((s) => ({ kind: 'org' as const, value: s.org, note: `${s.days} days` })),
+      });
     }
   }
 
   return out;
+}
+
+/** One finding for a set of domains: named in the title when there is one, listed otherwise. */
+function grouped(
+  level: InsightLevel,
+  policies: PolicyStat[],
+  one: (domain: string) => string,
+  many: (count: number) => string,
+  { detail }: { detail: string },
+): Insight {
+  const domains = [...new Set(policies.map((p) => p.domain))].sort();
+  if (domains.length === 1) return { level, title: one(domains[0]!), detail };
+  return { level, title: many(domains.length), detail, subjects: domains.map((d) => ({ kind: 'domain', value: d })) };
 }

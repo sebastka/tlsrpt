@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Filters, SyncStatus } from '../shared/types.ts';
+import type { Filters, InsightSubject, SyncStatus } from '../shared/types.ts';
 import { RESULT_TYPES } from '../shared/result-types.ts';
 import { api } from './api.ts';
 import { BarList } from './components/BarList.tsx';
@@ -101,6 +101,39 @@ function useSync(onFinished: () => void) {
     setStatus(s);
   };
   return { status, trigger };
+}
+
+const CHIPS_COLLAPSED = 12;
+
+/** Compact, wrapping list of the domains/reporters a finding covers; a click filters the view. */
+function SubjectChips({ subjects, onPick }: { subjects: InsightSubject[]; onPick: (s: InsightSubject) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const shown = expanded ? subjects : subjects.slice(0, CHIPS_COLLAPSED);
+  const hidden = subjects.length - shown.length;
+  return (
+    <ul className="chips">
+      {shown.map((s) => (
+        <li key={`${s.kind}:${s.value}`}>
+          <button
+            type="button"
+            className="chip"
+            title={`Show only ${s.kind === 'domain' ? 'domain' : 'reporter'} ${s.value}`}
+            onClick={() => onPick(s)}
+          >
+            {s.value}
+            {s.note && <span className="chip-note">{s.note}</span>}
+          </button>
+        </li>
+      ))}
+      {(hidden > 0 || expanded) && subjects.length > CHIPS_COLLAPSED && (
+        <li>
+          <button type="button" className="chip chip-more" onClick={() => setExpanded(!expanded)}>
+            {expanded ? 'Show fewer' : `+${hidden} more`}
+          </button>
+        </li>
+      )}
+    </ul>
+  );
 }
 
 function UserMenu() {
@@ -348,6 +381,12 @@ export function App() {
                     <StatusLabel level={i.level} />
                   </div>
                   <div className="d">{i.detail}</div>
+                  {i.subjects && (
+                    <SubjectChips
+                      subjects={i.subjects}
+                      onPick={(s) => update(s.kind === 'domain' ? { domain: s.value } : { org: s.value })}
+                    />
+                  )}
                 </div>
               </div>
             ))}

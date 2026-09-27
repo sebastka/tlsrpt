@@ -11,6 +11,8 @@ const store = await Store.connect(config.db);
 // Policies and failures cascade.
 await store.pool.query('DELETE FROM reports');
 
+const TESTING_DOMAINS = Array.from({ length: 18 }, (_, i) => `shop${String(i + 1).padStart(2, '0')}.example.net`);
+
 let seed = 42;
 const rand = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
 const reporters = [
@@ -66,6 +68,21 @@ for (let d = 120; d >= 1; d--) {
         policy: { 'policy-type': 'tlsa', 'policy-string': ['3 1 1 0000'], 'policy-domain': 'example.com' },
         summary: { 'total-successful-session-count': total, 'total-failure-session-count': 0 },
       });
+    }
+    // A fleet of smaller domains still in MTA-STS testing mode (shows grouped findings).
+    for (const domain of TESTING_DOMAINS) {
+      if (rand() < 0.3) {
+        const sessions = Math.round(rand() * 4) + 1;
+        policies.push({
+          policy: {
+            'policy-type': 'sts',
+            'policy-string': ['version: STSv1', 'mode: testing', `mx: mx.${domain}`, 'max_age: 86400'],
+            'policy-domain': domain,
+            'mx-host': [`mx.${domain}`],
+          },
+          summary: { 'total-successful-session-count': sessions, 'total-failure-session-count': 0 },
+        });
+      }
     }
     if (rand() < 0.2) {
       policies.push({

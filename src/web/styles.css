@@ -678,3 +678,37 @@ details.issues summary {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Domains/reporters a grouped finding covers */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+.chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.chip:hover {
+  background: var(--wash);
+  border-color: var(--baseline);
+}
+.chip-note {
+  color: var(--text-muted);
+}
+.chip-more {
+  background: none;
+  color: var(--accent-ink);
+}

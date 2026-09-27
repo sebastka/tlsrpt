@@ -110,6 +110,11 @@ review made the login mandatory and group-based (D16, D25).
 - MTA-STS `testing` → _info_ (no failures) or _warning_ (failures). `none` → _warning_.
 - `no-policy-found` → _info_.
 - A reporter silent for 7 days or more → _info_.
+- **Grouping:** when several domains (or reporters) are in the same state, they produce one
+  finding, e.g. "MTA-STS is in testing mode for 18 domains". The finding lists them as
+  chips: the first 12 are shown, the rest behind "+N more", and a click filters the
+  dashboard to that domain or reporter. A single domain keeps the specific wording, e.g.
+  "MTA-STS for example.com is in testing mode".
 - All thresholds are constants in [src/server/analysis.ts](src/server/analysis.ts).
 
 ### D13. The default date range is 90 days
