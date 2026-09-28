@@ -116,10 +116,11 @@ function SubjectChips({ subjects, onPick }: { subjects: InsightSubject[]; onPick
         <li key={`${s.kind}:${s.value}`}>
           <button
             type="button"
-            className="chip"
+            className={`chip${s.level ? ` chip-${s.level}` : ''}`}
             title={`Show only ${s.kind === 'domain' ? 'domain' : 'reporter'} ${s.value}`}
             onClick={() => onPick(s)}
           >
+            {s.level && <StatusIcon level={s.level} size={12} />}
             {s.value}
             {s.note && <span className="chip-note">{s.note}</span>}
           </button>

@@ -115,6 +115,11 @@ review made the login mandatory and group-based (D16, D25).
   chips: the first 12 are shown, the rest behind "+N more", and a click filters the
   dashboard to that domain or reporter. A single domain keeps the specific wording, e.g.
   "MTA-STS for example.com is in testing mode".
+- **One finding per topic:** all domains still in MTA-STS testing mode share one finding,
+  whether or not they had failures. If any had failures, the finding becomes a warning and
+  those domains come first, marked with a warning icon and their failure count; the others
+  follow alphabetically. Before, domains with and without failures were two separate
+  findings, which looked ungrouped.
 - All thresholds are constants in [src/server/analysis.ts](src/server/analysis.ts).
 
 ### D13. The default date range is 90 days

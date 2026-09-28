@@ -137,3 +137,29 @@ test('findings for many domains or reporters are grouped into one, with the list
   assert.equal(single.title, 'MTA-STS for karlsen.fr is in testing mode');
   assert.equal(single.subjects, undefined);
 });
+
+test('testing-mode domains with and without failures form one finding, failing ones first', () => {
+  const base = rows('google-sts.json')[0]!; // MTA-STS in testing mode
+  const make = (i: number, domain: string, failed: number) => ({
+    ...base,
+    id: i,
+    reportId: `r${i}`,
+    policies: base.policies.map((p) => ({ ...p, id: i, domain, failed, successful: 5 })),
+  });
+  const o = buildOverview([make(1, 'b.example', 0), make(2, 'webmail.example', 15), make(3, 'a.example', 0)], {});
+  const testing = o.insights.filter((i) => i.title.includes('testing mode'));
+  assert.equal(testing.length, 1);
+  assert.equal(testing[0]!.level, 'warning');
+  assert.equal(testing[0]!.title, 'MTA-STS is in testing mode for 3 domains');
+  assert.match(testing[0]!.detail, /^1 of them had failures/);
+  assert.deepEqual(testing[0]!.subjects, [
+    { kind: 'domain', value: 'webmail.example', level: 'warning', note: '15 failed' },
+    { kind: 'domain', value: 'a.example' },
+    { kind: 'domain', value: 'b.example' },
+  ]);
+  // A single failing domain keeps its specific wording.
+  const single = buildOverview([make(1, 'webmail.example', 15)], {}).insights.find((i) => i.title.includes('testing'))!;
+  assert.equal(single.title, 'MTA-STS for webmail.example is in testing mode');
+  assert.equal(single.level, 'warning');
+  assert.match(single.detail, /^15 MTA-STS failures reported/);
+});
