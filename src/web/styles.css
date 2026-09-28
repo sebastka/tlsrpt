@@ -712,3 +712,11 @@ details.issues summary {
   background: none;
   color: var(--accent-ink);
 }
+.chip svg {
+  align-self: center;
+  flex: none;
+}
+.chip-warning,
+.chip-critical {
+  border-color: var(--status-warning);
+}

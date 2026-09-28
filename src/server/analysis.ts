@@ -259,41 +259,45 @@ export function buildInsights(o: Overview, filters: Filters, now: Date): Insight
 
   // Per-domain and per-reporter findings are grouped, so many domains in the same state
   // produce one finding with a compact list instead of one line each.
-  const testingOk = o.byPolicy.filter((p) => p.type === 'sts' && p.latestMode === 'testing' && p.failed === 0);
-  const testingFailing = o.byPolicy.filter((p) => p.type === 'sts' && p.latestMode === 'testing' && p.failed > 0);
+  const testing = o.byPolicy.filter((p) => p.type === 'sts' && p.latestMode === 'testing');
   const modeNone = o.byPolicy.filter((p) => p.type === 'sts' && p.latestMode === 'none');
   const noPolicy = o.byPolicy.filter((p) => p.type === 'no-policy-found');
 
-  if (testingFailing.length) {
-    out.push(
-      grouped(
-        'warning',
-        testingFailing,
-        (d) => `MTA-STS for ${d} is in testing mode`,
-        (n) => `MTA-STS is in testing mode for ${n} domains with failures`,
-        {
-          detail:
-            'Senders will still deliver without TLS when validation fails. Fix the failures before switching to "mode: enforce".',
-        },
-      ),
-    );
-  }
-  if (testingOk.length) {
-    const single = testingOk[0]!;
-    out.push(
-      grouped(
-        'info',
-        testingOk,
-        (d) => `MTA-STS for ${d} is in testing mode`,
-        (n) => `MTA-STS is in testing mode for ${n} domains`,
-        {
-          detail:
-            testingOk.length === 1
-              ? `No MTA-STS failures in ${single.reports} report${single.reports === 1 ? '' : 's'}. Consider switching the policy to "mode: enforce" once you have enough history.`
-              : 'No MTA-STS failures reported for these domains. Consider switching their policies to "mode: enforce" once you have enough history.',
-        },
-      ),
-    );
+  // One finding for every domain still in MTA-STS testing mode. Domains with failures make it
+  // a warning and are listed first, marked, since they must be fixed before enforcing.
+  if (testing.length) {
+    const failing = testing.filter((p) => p.failed > 0).sort((a, b) => b.failed - a.failed);
+    const ok = testing.filter((p) => p.failed === 0).sort((a, b) => a.domain.localeCompare(b.domain));
+    const level: InsightLevel = failing.length ? 'warning' : 'info';
+    const fixFirst =
+      'Senders still deliver without TLS when validation fails, so fix the failures before switching to "mode: enforce".';
+    if (testing.length === 1) {
+      const p = testing[0]!;
+      out.push({
+        level,
+        title: `MTA-STS for ${p.domain} is in testing mode`,
+        detail: p.failed
+          ? `${p.failed.toLocaleString('en')} MTA-STS failure${p.failed === 1 ? '' : 's'} reported. ${fixFirst}`
+          : `No MTA-STS failures in ${p.reports} report${p.reports === 1 ? '' : 's'}. Consider switching the policy to "mode: enforce" once you have enough history.`,
+      });
+    } else {
+      out.push({
+        level,
+        title: `MTA-STS is in testing mode for ${testing.length} domains`,
+        detail: failing.length
+          ? `${failing.length} of them had failures (listed first). ${fixFirst} The others can be switched once you have enough history.`
+          : 'No MTA-STS failures reported for these domains. Consider switching their policies to "mode: enforce" once you have enough history.',
+        subjects: [
+          ...failing.map((p) => ({
+            kind: 'domain' as const,
+            value: p.domain,
+            level: 'warning' as const,
+            note: `${p.failed.toLocaleString('en')} failed`,
+          })),
+          ...ok.map((p) => ({ kind: 'domain' as const, value: p.domain })),
+        ],
+      });
+    }
   }
   if (modeNone.length) {
     out.push(

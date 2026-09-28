@@ -84,6 +84,8 @@ export interface InsightSubject {
   value: string;
   /** Short extra context shown in the chip, e.g. "32 days". */
   note?: string;
+  /** Marks subjects that need attention within the finding (shown with a status icon). */
+  level?: InsightLevel;
 }
 
 export interface Insight {
