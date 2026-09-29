@@ -9,6 +9,7 @@ import { FailureTable, OrgTable, PolicyTable, ReportTable, SeriesTable } from '.
 import { Card, ChartCard, StatusIcon, StatusLabel } from './components/ui.tsx';
 import { ago, compact, dateTime, num, percent, shortDay, todayUtc } from './format.ts';
 import { useAsync } from './hooks.ts';
+import logo from './logo.svg';
 
 const PRESETS = [
   { key: '7d', label: '7 days', days: 7 },
@@ -27,8 +28,7 @@ interface UiState {
   org: string;
 }
 
-function readUrl(): UiState {
-  const p = new URLSearchParams(location.search);
+function readUrl(p = new URLSearchParams(location.search)): UiState {
   const preset = (p.get('range') as PresetKey) ?? '90d';
   return {
     preset: [...PRESETS.map((x) => x.key), 'custom'].includes(preset) ? preset : '90d',
@@ -193,20 +193,40 @@ export function App() {
 
   const o = overview.data;
   const update = (patch: Partial<UiState>) => setUi((s) => ({ ...s, ...patch }));
+  /** The logo: back to the overview with its defaults (default range, no domain or reporter filter). */
+  const home = () => {
+    setUi(readUrl(new URLSearchParams()));
+    setOpenReport(null);
+    window.scrollTo({ top: 0 });
+  };
 
   return (
     <div className="app">
       <header className="header">
-        <div>
-          <h1>SMTP TLS Reports</h1>
-          <div className="sub">
-            RFC 8460 reports from <b>{status?.mailbox ?? '…'}</b>
-            {options.data?.firstDay && (
-              <>
-                {' '}
-                · data from {options.data.firstDay} to {options.data.lastDay}
-              </>
-            )}
+        <div className="brand">
+          <a
+            href="/"
+            className="brand-logo"
+            aria-label="SMTP TLS Reports: back to the overview"
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+              e.preventDefault();
+              home();
+            }}
+          >
+            <img src={logo} alt="" width="32" height="32" />
+          </a>
+          <div>
+            <h1>SMTP TLS Reports</h1>
+            <div className="sub">
+              RFC 8460 reports from <b>{status?.mailbox ?? '…'}</b>
+              {options.data?.firstDay && (
+                <>
+                  {' '}
+                  · data from {options.data.firstDay} to {options.data.lastDay}
+                </>
+              )}
+            </div>
           </div>
         </div>
         <div className="header-actions">
