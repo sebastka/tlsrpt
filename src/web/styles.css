@@ -119,6 +119,22 @@ input {
   flex-wrap: wrap;
   margin-bottom: 20px;
 }
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.brand-logo {
+  display: inline-flex;
+  border-radius: 8px;
+  padding: 2px;
+}
+.brand-logo:hover {
+  background: var(--wash);
+}
+.brand-logo img {
+  display: block;
+}
 .header h1 {
   font-size: 20px;
   font-weight: 650;
