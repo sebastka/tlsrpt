@@ -137,6 +137,23 @@ review made the login mandatory and group-based (D16, D25).
 
 - No caching and no server-side pagination. That is fine for thousands of reports.
 
+### D26. Coloured JSON and a generated YAML view in the report drawer
+
+- **Choice:** the raw report is shown as syntax-coloured JSON, followed by a YAML rendering
+  of the same data for easier reading. Both are computed in the browser from the stored
+  JSON when the drawer opens. No YAML is stored or sent anywhere.
+- **No library at runtime:** a small tokenizer ([src/web/highlight.ts](src/web/highlight.ts))
+  renders both, as React text nodes, so report content can never inject HTML.
+  - The JSON view is byte-identical to `JSON.stringify(raw, null, 2)`, so copying it gives
+    valid JSON.
+  - YAML strings stay unquoted only when every parser reads them back as the same string.
+    Anything else is double-quoted: YAML 1.1 booleans like `yes`/`on`/`n`, numbers, dates,
+    strings containing `: ` or ` #`, and leading or trailing spaces.
+  - The tests parse the YAML back with the `yaml` package (dev dependency only) under YAML
+    1.2 and 1.1, including a list of hostile strings, and require identical data.
+- **Colours:** separate light and dark tokens for keys, strings, numbers, literals and
+  punctuation, all at least 5.3:1 contrast on the code background.
+
 ## Security & deployment
 
 ### D16. OIDC login (revised)

@@ -3,6 +3,7 @@ import { RESULT_TYPES } from '../../shared/result-types.ts';
 import { api } from '../api.ts';
 import { dateTime, num } from '../format.ts';
 import { useAsync } from '../hooks.ts';
+import { CodeView } from './CodeView.tsx';
 import { FailCount } from './ui.tsx';
 
 export function ReportDrawer({ id, onClose }: { id: number; onClose: () => void }) {
@@ -101,8 +102,13 @@ export function ReportDrawer({ id, onClose }: { id: number; onClose: () => void 
               </div>
             ))}
 
-            <h3>Raw report</h3>
-            <pre>{JSON.stringify(r.raw, null, 2)}</pre>
+            <h3>Raw report (JSON)</h3>
+            <CodeView value={r.raw} format="json" label="Raw report as JSON" />
+
+            <h3>
+              As YAML <span className="muted h3-note">for easier reading; generated in the browser, not stored</span>
+            </h3>
+            <CodeView value={r.raw} format="yaml" label="Report as YAML" />
           </>
         )}
       </aside>
