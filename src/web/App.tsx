@@ -468,18 +468,21 @@ export function App() {
             />
           </div>
 
-          <div className="grid two section">
+          {/* Stacked rather than side by side: the policies list is usually much longer. */}
+          <div className="section">
+            <Card title="Reporters" desc="Organisations that sent reports">
+              <div className="table-wrap">
+                <OrgTable rows={o.byOrg} />
+              </div>
+            </Card>
+          </div>
+          <div className="section">
             <Card
               title="Policies"
               desc="Policies reporters applied, per domain. Mode and MX come from the latest report."
             >
               <div className="table-wrap">
                 <PolicyTable rows={o.byPolicy} />
-              </div>
-            </Card>
-            <Card title="Reporters" desc="Organisations that sent reports">
-              <div className="table-wrap">
-                <OrgTable rows={o.byOrg} />
               </div>
             </Card>
           </div>
