@@ -761,10 +761,9 @@ details.issues summary {
   --tok-literal: #b3a9f5;
   --tok-punct: #c3c2b7;
 }
+/* Full height: the page scrolls, not the block. Long lines still scroll horizontally (pre). */
 pre.code {
   line-height: 1.5;
-  max-height: 480px;
-  overflow: auto;
   color: var(--text-primary);
 }
 .tok-key {

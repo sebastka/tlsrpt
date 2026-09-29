@@ -19,7 +19,7 @@ opt in to deleting old, imported messages (see [Mailbox cleanup](#mailbox-cleanu
 dashboard **requires an OpenID Connect login** and membership of an allowed group. Design choices are recorded in
 [DECISIONS.md](DECISIONS.md).
 
-![Dashboard preview: TLS success rate, findings, sessions per day, policies, reporters and the list of reports](docs/dashboard.png)
+![Dashboard preview with synthetic data: TLS success rate, findings, sessions per day, failures by type, reporters, policies, failure details and the list of reports](docs/dashboard.png)
 
 ## Requirements
 
