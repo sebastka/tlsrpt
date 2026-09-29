@@ -14,7 +14,8 @@ It reads the aggregate reports that mail providers (Google, Microsoft, …) send
 - failure details grouped by receiving MX / IP and sending MTA
 - every report, with its policies, failure details and raw JSON
 
-The mailbox is opened **read-only**; nothing is flagged, moved or deleted. Opening the
+The mailbox is read without changing anything (nothing is flagged or moved), unless you
+opt in to deleting old, imported messages (see [Mailbox cleanup](#mailbox-cleanup)). Opening the
 dashboard **requires an OpenID Connect login** and membership of an allowed group. Design choices are recorded in
 [DECISIONS.md](DECISIONS.md).
 
@@ -34,6 +35,8 @@ Copy `.env.example` to `.env`. All settings are environment variables:
 | `IMAP_HOST`, `IMAP_USERNAME`, `IMAP_PASSWORD` | –                       | required to sync                                                                                                               |
 | `IMAP_PORT` / `IMAP_DIR`                      | `993` / `INBOX`         |                                                                                                                                |
 | `IMAP_TLS` / `IMAP_TLS_REJECT_UNAUTHORIZED`   | `true` on 993 / `true`  | STARTTLS on other ports                                                                                                        |
+| `IMAP_DELETE_AFTER_MONTHS`                    | – (off)                 | opt-in: delete imported messages in `IMAP_DIR` sent more than N months ago                                                     |
+| `IMAP_DELETE_DRY_RUN`                         | `false`                 | log what the cleanup would delete, delete nothing                                                                              |
 | `DB_HOST` / `DB_PORT`                         | `127.0.0.1` / `3306`    |                                                                                                                                |
 | `DB_USER` / `DB_PASSWORD` / `DB_NAME`         | `tlsrpt` / – / `tlsrpt` | password required; schema is created at startup                                                                                |
 | `DB_TLS` / `DB_POOL_SIZE`                     | `false` / `5`           |                                                                                                                                |
@@ -47,6 +50,22 @@ Copy `.env.example` to `.env`. All settings are environment variables:
 | `OIDC_ALLOWED_GROUPS`                         | –                       | **required**: groups allowed to open the dashboard, comma separated                                                            |
 | `OIDC_GROUPS_CLAIM`                           | `groups`                | claim holding the groups; dotted paths work, e.g. `realm_access.roles`                                                         |
 | `SESSION_TTL_HOURS`                           | `12`                    |                                                                                                                                |
+
+### Mailbox cleanup
+
+Off by default. With `IMAP_DELETE_AFTER_MONTHS=N`, each sync permanently deletes messages
+**in `IMAP_DIR` only** (no other folder is touched, nothing is moved to Trash) that:
+
+- were sent more than N calendar months ago (by their `Date:` header, the date the dashboard
+  shows as "Received"), **and**
+- have been imported: their report is stored in the database. Messages that could not be
+  parsed or had no report are kept, so you can still look at them.
+
+Reports stay in the database after their e-mail is deleted, including the raw JSON. The
+cleanup needs the server's `UIDPLUS` extension, so that only the chosen messages are
+expunged, and it skips itself (with a log line) without it. Try it first with
+`IMAP_DELETE_DRY_RUN=true`, which only logs what would be deleted. The "Mailbox sync" card
+shows whether the cleanup is on.
 
 ### OIDC
 

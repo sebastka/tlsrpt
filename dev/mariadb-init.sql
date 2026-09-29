@@ -3,4 +3,5 @@
 CREATE DATABASE IF NOT EXISTS tlsrpt_demo CHARACTER SET utf8mb4;
 CREATE DATABASE IF NOT EXISTS tlsrpt_test CHARACTER SET utf8mb4;
 GRANT ALL PRIVILEGES ON `tlsrpt\_demo`.* TO 'tlsrpt'@'%';
-GRANT ALL PRIVILEGES ON `tlsrpt\_test`.* TO 'tlsrpt'@'%';
+-- tlsrpt_test and tlsrpt_test_* (the cleanup test uses its own database).
+GRANT ALL PRIVILEGES ON `tlsrpt\_test%`.* TO 'tlsrpt'@'%';
