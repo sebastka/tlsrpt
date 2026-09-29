@@ -163,6 +163,8 @@ export interface SyncResult {
   duplicates: number;
   messagesWithoutReport: number;
   errors: number;
+  /** Messages removed by the opt-in mailbox cleanup (or that would be, in a dry run). */
+  deleted: number;
 }
 
 export interface MessageIssue {
@@ -185,6 +187,8 @@ export interface SyncStatus {
   nextRunAt: string | null;
   totals: { messages: number; reports: number };
   issues: MessageIssue[];
+  /** Opt-in mailbox cleanup settings; null when disabled. */
+  cleanup: { afterMonths: number; dryRun: boolean } | null;
 }
 
 export interface AuthUser {

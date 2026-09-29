@@ -87,6 +87,8 @@ const MIGRATIONS: string[][] = [
        created_at    DATETIME NOT NULL
      )`,
   ],
+  // 2: opt-in mailbox cleanup records when a message was deleted from the mailbox.
+  ['ALTER TABLE messages ADD COLUMN deleted_at DATETIME NULL'],
 ];
 
 export interface ReportRow {
@@ -342,6 +344,33 @@ export class Store {
          message_id = VALUES(message_id), from_addr = VALUES(from_addr), subject = VALUES(subject),
          date = VALUES(date), status = VALUES(status), error = VALUES(error), processed_at = VALUES(processed_at)`,
       [m.mailbox, m.uidvalidity, m.uid, m.messageId, clip(m.from, 320), m.subject, dbTime(m.date), m.status, m.error],
+    );
+  }
+
+  /**
+   * Of the given UIDs, those whose reports are safely stored (status ok or duplicate) and
+   * which are still in the mailbox. Only these may be deleted by the mailbox cleanup.
+   */
+  async importedUids(mailbox: string, uidvalidity: string, uids: number[]): Promise<Set<number>> {
+    const found = new Set<number>();
+    for (let i = 0; i < uids.length; i += 500) {
+      const chunk = uids.slice(i, i + 500);
+      const rows = await this.pool.query<Row[]>(
+        `SELECT uid FROM messages
+         WHERE mailbox = ? AND uidvalidity = ? AND status IN ('ok', 'duplicate') AND deleted_at IS NULL
+           AND uid IN (?)`,
+        [mailbox, uidvalidity, chunk],
+      );
+      for (const r of rows) found.add(Number(r.uid));
+    }
+    return found;
+  }
+
+  async markDeleted(mailbox: string, uidvalidity: string, uids: number[]): Promise<void> {
+    if (!uids.length) return;
+    await this.pool.query(
+      'UPDATE messages SET deleted_at = UTC_TIMESTAMP() WHERE mailbox = ? AND uidvalidity = ? AND uid IN (?)',
+      [mailbox, uidvalidity, uids],
     );
   }
 

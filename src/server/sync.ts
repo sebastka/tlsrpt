@@ -1,4 +1,4 @@
-// Incremental, read-only IMAP synchronisation.
+// Incremental IMAP synchronisation (read-only), plus the opt-in cleanup of old imported messages.
 import { ImapFlow } from 'imapflow';
 import type { SyncResult, SyncStatus } from '../shared/types.ts';
 import { config, imapConfigured } from './config.ts';
@@ -6,6 +6,27 @@ import type { Store } from './db.ts';
 import { extractReports } from './mail.ts';
 
 type Log = (msg: string) => void;
+
+/**
+ * The cleanup deletes messages sent before this date: `months` calendar months before `now`
+ * (UTC, start of day). The day is clamped to the target month, e.g. 31 March minus one month
+ * is 28/29 February.
+ */
+export function cleanupCutoff(now: Date, months: number): Date {
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth() - months;
+  const lastDay = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(y, m, Math.min(now.getUTCDate(), lastDay)));
+}
+
+/**
+ * Of the messages the server found older than the cutoff, only those at or below the last
+ * processed UID and recorded as imported may be deleted; everything else is kept.
+ */
+export function selectForDeletion(olderThanCutoff: number[], lastProcessedUid: number, imported: Set<number>) {
+  const remove = olderThanCutoff.filter((uid) => uid <= lastProcessedUid && imported.has(uid)).sort((a, b) => a - b);
+  return { remove, kept: olderThanCutoff.length - remove.length };
+}
 
 export class Syncer {
   private running: Promise<SyncResult> | null = null;
@@ -43,6 +64,10 @@ export class Syncer {
       nextRunAt: this.nextRunAt,
       totals,
       issues,
+      cleanup:
+        config.imap.deleteAfterMonths > 0
+          ? { afterMonths: config.imap.deleteAfterMonths, dryRun: config.imap.deleteDryRun }
+          : null,
     };
   }
 
@@ -85,7 +110,14 @@ export class Syncer {
 
   private async doRun({ full = false }: { full?: boolean }): Promise<SyncResult> {
     this.lastRunAt = new Date().toISOString();
-    const result: SyncResult = { messagesSeen: 0, reportsAdded: 0, duplicates: 0, messagesWithoutReport: 0, errors: 0 };
+    const result: SyncResult = {
+      messagesSeen: 0,
+      reportsAdded: 0,
+      duplicates: 0,
+      messagesWithoutReport: 0,
+      errors: 0,
+      deleted: 0,
+    };
     try {
       if (!imapConfigured()) throw new Error('IMAP is not configured (IMAP_HOST, IMAP_USERNAME, IMAP_PASSWORD)');
       // Only one instance talks to the mailbox at a time.
@@ -126,7 +158,8 @@ export class Syncer {
 
     await client.connect();
     try {
-      // Read-only: we never change flags, move or delete messages.
+      // Importing is read-only. Only the opt-in cleanup below opens the mailbox read-write.
+      let importedFrom: string | null = null;
       const lock = await client.getMailboxLock(imap.mailbox, { readOnly: true });
       try {
         const box = client.mailbox;
@@ -181,12 +214,68 @@ export class Syncer {
           // message is retried next time.
           await this.store.setMeta(lastUidKey, String(uid));
         }
-        return true;
+        importedFrom = uidValidity;
       } finally {
         lock.release();
       }
+      if (importedFrom && imap.deleteAfterMonths > 0 && !this.stopping) {
+        await this.cleanup(client, importedFrom, result);
+      }
+      return true;
     } finally {
       await client.logout().catch(() => client.close());
+    }
+  }
+
+  /**
+   * Opt-in cleanup: permanently deletes messages in IMAP_DIR (and nowhere else) that were sent
+   * more than IMAP_DELETE_AFTER_MONTHS months ago and whose reports are stored. Messages that
+   * could not be imported are kept. Requires UIDPLUS, so that only the chosen UIDs are expunged.
+   */
+  private async cleanup(client: ImapFlow, uidValidity: string, result: SyncResult): Promise<void> {
+    const { imap } = config;
+    if (!client.capabilities.has('UIDPLUS')) {
+      this.log('cleanup skipped: the server lacks UIDPLUS, so an expunge could also remove messages flagged by others');
+      return;
+    }
+    const lastUid = Number((await this.store.getMeta(`lastuid:${imap.mailbox}`)) ?? 0);
+    if (!lastUid) return;
+    const cutoff = cleanupCutoff(new Date(), imap.deleteAfterMonths);
+    const day = cutoff.toISOString().slice(0, 10);
+
+    const lock = await client.getMailboxLock(imap.mailbox);
+    try {
+      // The mailbox must be the one just imported from, not a recreated one with reused UIDs.
+      if (String(client.mailbox && client.mailbox.uidValidity) !== uidValidity) {
+        this.log('cleanup skipped: UIDVALIDITY changed since the import');
+        return;
+      }
+      // SENTBEFORE compares the Date: header (the date the dashboard shows as "Received").
+      const old = (await client.search({ sentBefore: cutoff, uid: `1:${lastUid}` }, { uid: true })) || [];
+      if (!old.length) return;
+      const imported = await this.store.importedUids(imap.mailbox, uidValidity, old);
+      const { remove, kept } = selectForDeletion(old, lastUid, imported);
+      const keptNote = kept ? `, ${kept} older message(s) kept because they were not imported` : '';
+      if (imap.deleteDryRun) {
+        result.deleted += remove.length;
+        this.log(`cleanup dry run: would delete ${remove.length} message(s) sent before ${day}${keptNote}`);
+        return;
+      }
+      for (let i = 0; i < remove.length; i += 200) {
+        if (this.stopping) break;
+        const chunk = remove.slice(i, i + 200);
+        // \Deleted + UID EXPUNGE of exactly these UIDs (ImapFlow uses UID EXPUNGE with UIDPLUS).
+        if (!(await client.messageDelete(chunk.join(','), { uid: true }))) {
+          throw new Error(`cleanup: the server refused to delete messages ${chunk[0]}-${chunk.at(-1)}`);
+        }
+        await this.store.markDeleted(imap.mailbox, uidValidity, chunk);
+        result.deleted += chunk.length;
+      }
+      if (remove.length || kept) {
+        this.log(`cleanup: deleted ${result.deleted} message(s) sent before ${day}${keptNote}`);
+      }
+    } finally {
+      lock.release();
     }
   }
 

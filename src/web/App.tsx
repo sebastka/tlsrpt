@@ -494,6 +494,23 @@ export function App() {
                 {num(status.totals.messages)} messages processed, {num(status.totals.reports)} reports stored · last run{' '}
                 {dateTime(status.lastRunAt)}
                 {status.nextRunAt && <> · next run {dateTime(status.nextRunAt)}</>}
+                <br />
+                {status.cleanup ? (
+                  <>
+                    Cleanup{status.cleanup.dryRun ? ' (dry run, nothing is deleted)' : ''}: imported messages sent more
+                    than {status.cleanup.afterMonths} month{status.cleanup.afterMonths === 1 ? '' : 's'} ago are deleted
+                    from {status.mailbox}
+                    {status.lastResult?.deleted ? (
+                      <>
+                        {' '}
+                        · last run: {num(status.lastResult.deleted)}
+                        {status.cleanup.dryRun ? ' would be deleted' : ' deleted'}
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  <>Cleanup is off: messages are never deleted from {status.mailbox}</>
+                )}
               </>
             }
           >

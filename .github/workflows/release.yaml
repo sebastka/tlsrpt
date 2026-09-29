@@ -21,7 +21,7 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-check-${{ github.ref }}
       cancel-in-progress: true
-    # The store integration tests run against a real MariaDB.
+    # The store and mailbox cleanup integration tests run against a real MariaDB and IMAP server.
     services:
       mariadb:
         image: mariadb:11.4
@@ -31,7 +31,16 @@ jobs:
         options: >-
           --health-cmd "healthcheck.sh --connect --innodb_initialized"
           --health-interval 5s --health-timeout 5s --health-retries 20
+      # Disposable IMAP server for the mailbox cleanup tests (any user, password from env).
+      imap:
+        image: dovecot/dovecot:2.4.2
+        env:
+          USER_PASSWORD: ci-imap
+        ports: ['31993:31993']
     env:
+      TEST_IMAP_HOST: 127.0.0.1
+      TEST_IMAP_PORT: '31993'
+      TEST_IMAP_PASSWORD: ci-imap
       TEST_DB_HOST: 127.0.0.1
       TEST_DB_USER: root
       TEST_DB_PASSWORD: ci-root

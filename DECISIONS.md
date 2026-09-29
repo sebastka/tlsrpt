@@ -51,12 +51,11 @@ review made the login mandatory and group-based (D16, D25).
 - **Existing data:** nothing is migrated from the old SQLite file. The mailbox is the
   source of truth, and the first sync re-imports every report.
 
-### D5. IMAP access is strictly read-only
+### D5. IMAP access is read-only, except for the opt-in cleanup (revised)
 
-- **Choice:** The mailbox is opened with `EXAMINE` (read-only). We never set `\Seen`,
-  move, delete or expunge anything.
-- **Alternative:** move processed messages to a `Processed` folder, or delete reports
-  older than N days.
+- **Choice:** Importing opens the mailbox with `EXAMINE` (read-only). It never sets `\Seen`,
+  moves or deletes anything. Only the opt-in cleanup (D27) opens it read-write, to delete
+  old imported messages.
 
 ### D6. Incremental sync by UID, on a schedule and on demand (revised)
 
@@ -153,6 +152,36 @@ review made the login mandatory and group-based (D16, D25).
     1.2 and 1.1, including a list of hostile strings, and require identical data.
 - **Colours:** separate light and dark tokens for keys, strings, numbers, literals and
   punctuation, all at least 5.3:1 contrast on the code background.
+
+### D27. Opt-in mailbox cleanup
+
+- **Off unless configured:** `IMAP_DELETE_AFTER_MONTHS=N` enables it; unset or 0 deletes
+  nothing. `IMAP_DELETE_DRY_RUN=true` logs what would be deleted, for a first rollout. The
+  "Mailbox sync" card shows the current setting.
+- **Scope:** only `IMAP_DIR`, the mailbox the sync reads. Messages are deleted permanently
+  (`\Deleted` + expunge) rather than moved to Trash, since moving would write to another
+  folder.
+- **What is deleted:** a message qualifies only if all of these hold:
+  - it was sent before the cutoff (IMAP `SENTBEFORE`, i.e. the `Date:` header, the same
+    date the UI shows; INTERNALDATE is unreliable here, see D9). The cutoff is N calendar
+    months back, clamped at month ends, in UTC.
+  - its UID is at or below the last processed UID.
+  - the database records it as imported (`ok` or `duplicate`), i.e. its report is stored.
+    Messages that failed to parse or had no report are kept for inspection.
+  - the mailbox's UIDVALIDITY is still the one it was imported under.
+- **Exact expunge:** requires the server's `UIDPLUS` extension, so ImapFlow sends
+  `UID EXPUNGE <uids>` for exactly the chosen messages. A plain `EXPUNGE` would also
+  remove messages another client had flagged `\Deleted`, so without UIDPLUS the cleanup
+  skips itself with a log line. Your server (Dovecot) supports UIDPLUS.
+- **Bookkeeping:** deleted messages get `messages.deleted_at` (migration 2), and their
+  reports and raw JSON stay in the database. It runs after each sync, under the same
+  cross-instance lock, in batches of 200, and stops between batches on shutdown.
+- **Tested end to end** against a disposable Dovecot (`dovecot/dovecot:2.4.2`, locally via
+  `docker compose --profile imap`, and as a service container in CI). Each run uses a fresh
+  random user, with old and recent reports, a non-report mail, a broken report and a
+  report in another folder. It checks the dry run, that exactly the old imported report
+  is deleted, that the other folder is untouched and the report stays stored, and that
+  later runs are no-ops.
 
 ## Security & deployment
 

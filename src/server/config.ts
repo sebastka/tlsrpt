@@ -45,6 +45,13 @@ export const config = {
     rejectUnauthorized: bool('IMAP_TLS_REJECT_UNAUTHORIZED', true),
     /** Messages larger than this are skipped (bytes). */
     maxMessageSize: int('IMAP_MAX_MESSAGE_BYTES', 25 * 1024 * 1024),
+    /**
+     * Opt-in cleanup: delete imported messages in IMAP_DIR sent more than this many months ago.
+     * 0 (the default) never deletes anything.
+     */
+    deleteAfterMonths: int('IMAP_DELETE_AFTER_MONTHS', 0),
+    /** Log what the cleanup would delete without deleting anything. */
+    deleteDryRun: bool('IMAP_DELETE_DRY_RUN', false),
   },
   db: {
     host: str('DB_HOST', '127.0.0.1')!,
@@ -94,6 +101,9 @@ export type Config = typeof config;
 export function validateConfig({ server }: { server: boolean }, cfg: Config = config): void {
   const missing: string[] = [];
   if (!cfg.db.password) missing.push('DB_PASSWORD');
+  if (cfg.imap.deleteAfterMonths < 0) {
+    throw new Error('IMAP_DELETE_AFTER_MONTHS must be 0 (never delete) or a positive number of months');
+  }
   if (server) {
     if (!cfg.oidc.issuer) missing.push('OIDC_ISSUER');
     if (!cfg.oidc.clientId) missing.push('OIDC_CLIENT_ID');
