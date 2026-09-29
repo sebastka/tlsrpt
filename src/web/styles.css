@@ -720,3 +720,55 @@ details.issues summary {
 .chip-critical {
   border-color: var(--status-warning);
 }
+
+/* Syntax colours for the report viewers (all >= 5.3:1 on the code background) */
+:root {
+  --tok-key: #1c5cab;
+  --tok-string: #006300;
+  --tok-number: #a8440c;
+  --tok-literal: #4a3aa7;
+  --tok-punct: #52514e;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme='light'])) {
+    --tok-key: #86b6ef;
+    --tok-string: #6fcf6f;
+    --tok-number: #f0a070;
+    --tok-literal: #b3a9f5;
+    --tok-punct: #c3c2b7;
+  }
+}
+:root[data-theme='dark'] {
+  --tok-key: #86b6ef;
+  --tok-string: #6fcf6f;
+  --tok-number: #f0a070;
+  --tok-literal: #b3a9f5;
+  --tok-punct: #c3c2b7;
+}
+pre.code {
+  line-height: 1.5;
+  max-height: 480px;
+  overflow: auto;
+  color: var(--text-primary);
+}
+.tok-key {
+  color: var(--tok-key);
+}
+.tok-string {
+  color: var(--tok-string);
+}
+.tok-number {
+  color: var(--tok-number);
+}
+.tok-literal {
+  color: var(--tok-literal);
+  font-weight: 600;
+}
+.tok-punct {
+  color: var(--tok-punct);
+}
+.h3-note {
+  font-weight: 400;
+  font-size: 12px;
+  margin-left: 6px;
+}
