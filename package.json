@@ -27,7 +27,7 @@
   "dependencies": {
     "@hono/node-server": "^2.1.8",
     "hono": "^4.13.18",
-    "imapflow": "^2.11.0",
+    "imapflow": "^2.12.2",
     "mailparser": "^3.14.2",
     "mariadb": "^3.5.5",
     "openid-client": "^6.8.9"
